@@ -44,7 +44,7 @@ def get_todays_off_bot_message():
 
 def process_off_message(message):
     on_vacation = [normalize_string(x) for x in re.findall('<li>(.*) szabin', message)]
-    not_working_lines = re.findall('Nem dolgozik: (.*), </li>', message)
+    not_working_lines = re.findall('Nem dolgozik: (.*)</li>', message)
     not_working = list(normalize_string(x.strip()) for x in next(iter(not_working_lines), '').split(','))
     return on_vacation + not_working
 
