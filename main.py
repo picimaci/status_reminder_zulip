@@ -5,8 +5,8 @@ import re
 from datetime import datetime
 
 
-no_status_needed = os.environ['NO_STATUS_NEEDED']
-alternative_names = os.environ['ALTERNATIVE_NAMES']
+no_status_needed_string = os.environ['NO_STATUS_NEEDED']
+alternative_names_string = os.environ['ALTERNATIVE_NAMES']
 stream = os.environ['ZULIP_STREAM']
 topic = os.environ['ZULIP_TOPIC']
 # ZULIP_SITE - zulip client
@@ -15,6 +15,13 @@ topic = os.environ['ZULIP_TOPIC']
 
 
 client = zulip.Client()
+
+no_status_needed = no_status_needed_string.split(',')
+alternative_names = dict()
+for item in alternative_names_string.split(','):
+    name = item.split(':')[0]
+    alt_name = item.split(':')[1]
+    alternative_names[name] = alt_name
 
 
 def normalize_string(input):
@@ -91,7 +98,7 @@ def get_outsource(status_messages):
     def filter_outsource(message):
         return ':outbox:' in message.get('content', '')
 
-    outsource_message = list(filter(filter_outsource, status_messages))[-1].get('content', '')
+    outsource_message = next(iter(list(filter(filter_outsource, status_messages))), {}).get('content', '')
     outsource = [normalize_string(x) for x in re.findall('\n- (.*): ', outsource_message)]
     return outsource
 
