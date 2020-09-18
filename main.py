@@ -44,12 +44,13 @@ def get_todays_off_bot_message():
 
 def process_off_message(message):
     on_vacation = [normalize_string(x) for x in re.findall('<li>(.*) szabin', message)]
+    on_sick_leave = [normalize_string(x) for x in re.findall('<li>(.*) betegszabin', message)]
     not_working_lines = re.findall('Nem dolgozik: (.*)</li>', message)
     not_working = list(normalize_string(x.strip()) for x in next(iter(not_working_lines), '').split(','))
-    return on_vacation + not_working
+    return on_vacation + on_sick_leave + not_working
 
 
-# Kiszurjuk azokat, akik nem irnak statuszt
+# Filter the members who shouldn't write the status
 # "is_bot": false,
 # "is_active": true,
 def filter_member(member):
@@ -61,16 +62,18 @@ def get_users_writing_status():
     all_names = list([normalize_string(x.get('full_name')), x.get('full_name')] for x in all_members)
 
     def filter_for_status_needed(member):
-        return member[0] not in (no_status_needed + outsource)
+        return member[0] not in no_status_needed
 
     status_needed_members = list(filter(filter_for_status_needed, all_names))
 
     return status_needed_members
 
 
-def filter_message_for_date(message):
+def filter_message_for_date_and_content(message):
     timestamp = message.get('timestamp', 0)
-    return datetime.today().date() == datetime.fromtimestamp(timestamp).date()
+    date_filter = datetime.today().date() == datetime.fromtimestamp(timestamp).date()
+    content_filter = 'ma:' in message.get('content', '').lower()
+    return date_filter & content_filter
 
 
 def get_todays_status_messages():
@@ -86,7 +89,7 @@ def get_todays_status_messages():
                    {'operator': 'stream', 'operand': stream}],
     }
     result = client.get_messages(request)
-    return list(filter(filter_message_for_date, result.get('messages', [])))
+    return list(filter(filter_message_for_date_and_content, result.get('messages', [])))
 
 
 def get_wrote_status(status_messages):
@@ -94,17 +97,24 @@ def get_wrote_status(status_messages):
     return list(normalize_string(x) for x in senders)
 
 
-def get_outsource(status_messages):
-    def filter_outsource(message):
-        return ':outbox:' in message.get('content', '')
+# Get people who had their status written by someone else
+def get_written_for(status_messages):
+    def filter_for_emoticon(message, emoticon):
+        return emoticon in message.get('content', '')
 
-    outsource_message = next(iter(list(filter(filter_outsource, status_messages))), {}).get('content', '')
-    outsource = [normalize_string(x) for x in re.findall('\n- (.*): ', outsource_message)]
-    return outsource
+    def get_names(message):
+        return [normalize_string(x) for x in re.findall('<li>(.*): ', message)]
+
+    outsource = list(filter(lambda seq: filter_for_emoticon(seq, ':outbox:'), status_messages))
+    project = list(filter(lambda seq: filter_for_emoticon(seq, ':dancers:'), status_messages))
+    written_for_messages = (x.get('content', '') for x in outsource + project)
+    written_for_lists = (get_names(x) for x in written_for_messages)
+    return [name for sublist in written_for_lists for name in sublist]
 
 
 def send_message_to_status_stream(people_to_remind):
-    content = "status reminder - " + ' '.join(list('@**' + x + '**' for x in people_to_remind))
+    content = "Good job everyone, no reminder needed today! :tada:" if len(people_to_remind) == 0 \
+        else "status reminder - " + ' '.join(list('@**' + x + '**' for x in people_to_remind))
     request = {
         "type": "stream",
         "to": stream,
@@ -126,9 +136,9 @@ todays_off_message = get_todays_off_bot_message()
 absentees = process_off_message(todays_off_message)
 status_messages = get_todays_status_messages()
 wrote_status = get_wrote_status(status_messages)
-outsource = get_outsource(status_messages)
+written_for = get_written_for(status_messages)
 users_writing_status = get_users_writing_status()
-status_done = absentees + wrote_status
+status_done = absentees + wrote_status + written_for
 status_done_names_corrected = list(name.replace(name, alternative_names.get(name, name)) for name in status_done)
 
 need_reminding = list(get_people_that_need_reminding(status_done_names_corrected, users_writing_status))
